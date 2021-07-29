@@ -1,0 +1,429 @@
+---
+title: "SARIMA"
+author: "Yeseul_Sung"
+date: "7/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+setwd("/Users/seong-yeseul/Downloads")
+library(data.table)
+library(forecast)
+library(dplyr)
+library(tidyverse)
+library(magrittr)
+source("TS-library.R")
+source("TS-yslib.R")
+```
+
+# Cluster 0
+
+## Cluster Sum
+
+```{r message=FALSE, warning=FALSE}
+data = fread("v23gb2_cluster0.csv")[, 4:56] %>% apply(2, sum)
+data = ts(data, frequency = 12, start = c(2017, 01))
+plot.ts(data) #seasonality? linear or poly trend?
+
+acf(data, lag = 50) #till lag 10, lag 37
+pacf(data, lag = 50) #1
+plot.ts(diff(data))
+plot.ts(diff(diff(data))) #VST needed maybe
+```
+
+
+```{r message=FALSE, warning=FALSE}
+library(MASS)
+fit = boxcox(data ~ 1)
+lambda = fit$x[which.max(fit$y)]; lambda
+
+dat = log(data)
+dat2 = data ^(-2)
+par(mfrow = c(1, 3))
+plot.ts(data)
+plot.ts(dat)
+plot.ts(dat2)
+
+qqnorm(data); qqline(data)
+qqnorm(dat); qqline(dat)
+qqnorm(dat2);qqline(dat2)
+
+acf(data, lag = 50)
+acf(dat, lag = 50)
+acf(dat2, lag = 50)
+
+pacf(data, lag = 50)
+pacf(dat, lag = 50)
+pacf(dat2, lag = 50)
+```
+
+```{r message=FALSE, warning=FALSE}
+#auto.arima
+auto.arima(data) #(0, 1, 2) 0.8977 log likelihood=-70.1 AIC=146.21
+auto.arima(dat) #(0, 1, 0) 0.006872:log likelihood=55.7 AIC=-109.4
+auto.arima(dat2) #(0, 1, 0)1.546e-06:log likelihood=274.09 AIC=-546.18 
+par(mfrow = c(1, 1))
+```
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#original data
+out = compare_stats(data, 2, 2, 2, 1, 1, 1, period = 12);out[1:10, ] 
+```
+
+
+```{r message=FALSE, warning=FALSE}
+out_error_plot(data, 37, a_order = c(0, 1, 2)) #2.167863
+out_error_plot(data, 37, a_order = c(2, 1, 0), s_order = c(0, 1, 1), period = 12)#4.372653
+out_error_plot(data, 37, a_order = c(0, 1, 2), s_order = c(0, 1, 1), period = 12)#4.850387
+out_error_plot(data, 37, a_order = c(0, 1, 1), s_order = c(0, 1, 1), period = 12)#4.547179
+out_error_plot(data, 37, a_order = c(1, 1, 1), s_order = c(0, 1, 1), period = 12)#4.678489
+out_error_plot(data, 37, a_order = c(2, 1, 1), s_order = c(0, 1, 1), period = 12)#4.672863
+
+```
+
+in terms of AIC/BIC/sigma2/log likelihood, fit2 > 3 > 4 > 5 > 6 > 1
+in terms of out of sample MSE fit1 > 2 > 4 > 6 > 5 > 3
+
+```{r message=FALSE, warning=FALSE}
+fit1 = arima(data, order = c(0, 1, 2), include.mean = F)
+fit2 = arima(data, order = c(2, 1, 0), 
+             seasonal = list(order = c(0, 1, 1), period = 12), include.mean = F)
+fit3 = arima(data, order = c(0, 1, 2), 
+             seasonal = list(order = c(0, 1, 1), period = 12), include.mean = F)
+fit4 = arima(data, order = c(0, 1, 1), 
+             seasonal = list(order = c(0, 1, 1), period = 12), include.mean = F)
+fit5 = arima(data, order = c(1, 1, 1), 
+             seasonal = list(order = c(0, 1, 1), period = 12), include.mean = F)
+fit6 = arima(data, order = c(2, 1, 1), 
+             seasonal = list(order = c(0, 1, 1), period = 12), include.mean = F)
+
+#to test if coefficients are away from 0 or not
+test_coef(fit1)
+test_coef(fit2)
+test_coef(fit3)
+test_coef(fit4)
+test_coef(fit5)
+test_coef(fit6)
+```
+
+in terms of coefficients test, fit4> fit5 > fit1 > fit2 > fit3 > fit6
+
+```{r message=FALSE, warning=FALSE}
+test(residuals(fit1)) #0 rejected, acf/pacf/resi/qq ok
+test(residuals(fit2)) #1 rejected, resi & qq seems to be unstable
+test(residuals(fit3)) #1 rejected, same as fit2
+test(residuals(fit4)) #2 rejected, same
+test(residuals(fit5)) #1 rejected, same
+test(residuals(fit6)) #1 rejected, same
+```
+
+in terms of residuals, fit1 > fit2, 4, 5, 6 > fit3
+
+our final model is fit 2, 4
+
+```{r message=FALSE, warning=FALSE}
+plot(forecast::forecast(fit2))
+plot(forecast::forecast(fit4))
+```
+
+by the same procedure as above, the best model in log transformed data is as below:
+
+```{r message=FALSE, warning=FALSE}
+fit23 = arima(dat, order = c(1, 1, 1), 
+      seasonal = list(order = c(0, 1, 0), period = 12), 
+      include.mean = F)
+out_error_plot(dat, 37, a_order = c(1, 1, 1), 
+               s_order = c(0, 1, 0), period = 12) #0.02959237
+test_coef(fit23) #all T
+test(residuals(fit23)) #0 rejected, lag 12
+plot(forecast::forecast(fit23))
+```
+
+to compare with prophet, out of sample prediction error in original scale is as below:
+
+```{r message=FALSE, warning=FALSE}
+n = length(dat)
+xhat = numeric(n -37)
+for (i in 0:(n - 38)){
+  fit = arima(dat[1:(37 + i)], order = c(1, 1, 1), 
+              seasonal = list(order = c(0, 1, 0), period = 12),
+              include.mean = F)
+  xhat[i+1] = exp(forecast::forecast(fit, h = 1)$mean)
+}
+mean((data[38:53] - xhat)^2) #original scale out of sample MSE
+```
+
+to compare with prophet, mape in original scale is as below :
+```{r message=FALSE, warning=FALSE}
+#mape
+n = length(dat)
+fit = arima(dat[1:37], order = c(1, 1, 1), seasonal = list(order = c(0, 1, 0), period =12), include.mean = F)
+xhat = exp(forecast::forecast(fit, h = 16)$mean)
+mape = (1 - mean(abs((xhat - data[38:53])/data[38:53])))*100
+mape
+```
+
+## Cluster Median
+
+```{r message=FALSE, warning=FALSE}
+data = fread("arima_median.csv")[1,-1] %>% apply(2, sum)
+data = ts(data, frequency  = 12, start = c(2017, 01))
+plot.ts(data)
+acf(data, lag = 50)
+pacf(data, lag = 50)
+plot.ts(diff(data))
+plot.ts(diff(diff(data))) #VST needed
+library(MASS)
+fit = boxcox(data ~ 1)
+lambda = fit$x[which.max(fit$y)]; lambda
+dat = log(data)
+```
+
+cluster0 median final model : (1, 1, 1)(0, 1, 0)[12]
+
+```{r message=FALSE, warning=FALSE}
+fit23 = arima(dat, order = c(1, 1, 1), seasonal = list(order = c(0, 1, 0), period = 12),
+             include.mean = F)
+out_error_plot(dat, 37, a_order = c(1, 1, 1), s_order = c(0, 1, 0), period = 12) #0.0343151
+test_coef(fit23) #2/3 **
+test(residuals(fit23)) #ok
+plot(forecast::forecast(fit23))
+```
+
+```{r message=FALSE, warning=FALSE}
+n = length(dat)
+xhat = numeric(n -37)
+for (i in 0:(n - 38)){
+  fit = arima(dat[1:(37 + i)], order = c(1, 1, 1), 
+              seasonal = list(order = c(0, 1, 0), period = 12),
+              include.mean = F)
+  xhat[i+1] = exp(forecast::forecast(fit, h = 1)$mean)
+}
+mean((data[38:53] - xhat)^2) #original scale out of sample MSE
+```
+
+to compare with prophet, mape in original scale is as below :
+```{r message=FALSE, warning=FALSE}
+#mape
+n = length(dat)
+fit = arima(dat[1:37], order = c(1, 1, 1), seasonal = list(order = c(0, 1, 0), period =12), include.mean = F)
+xhat = exp(forecast::forecast(fit, h = 16)$mean)
+mape = (1 - mean(abs((xhat - data[38:53])/data[38:53])))*100
+mape
+```
+
+#Cluster 1
+
+## Cluster sum
+
+```{r message=FALSE, warning=FALSE}
+data = fread("v23gb2_cluster1.csv")[, 4:56] %>% apply(2, sum)
+data = ts(data, frequency = 12, start = c(2017, 01))
+plot.ts(data) #seasonality? poly trend?
+acf(data, lag = 50) #~10, 37
+pacf(data, lag = 50) #1
+plot.ts(diff(data))
+plot.ts(diff(diff(data)))
+library(MASS)
+fit = boxcox(data ~ 1)
+lambda = fit$x[which.max(fit$y)]; lambda
+dat = log(data)
+dat2 = data^(-2)
+auto.arima(data) #(0,1,1)(1,0,0)[12] 0.1697:  log likelihood=-27.06 AIC=60.13
+auto.arima(dat) #0.005294:  log likelihood=62.99 AIC=-119.99 
+auto.arima(dat2) #2.275e-05:  log likelihood=204.52 AIC=-403.04
+```
+
+```{r message=FALSE, warning=FALSE}
+out = compare_stats(data, 1,1, 1, 1, 1, 1, period = 12);out
+fit1 = arima(data, order = c(0, 1, 1), 
+             seasonal = list(order = c(1, 0, 0), period = 12), 
+             include.mean = F) #60.12625  65.97999 0.1631558  -27.06313
+fit2 = arima(data, order = c(0, 1, 1), 
+             seasonal = list(order = c(0, 1, 1), period = 12), 
+             include.mean = F) #58.25701  63.32365 0.1386916  -26.12850
+fit3 = arima(data, order = c(1, 1, 1), 
+             seasonal = list(order = c(0, 1, 1), period = 12), 
+             include.mean = F) #59.96654  66.72206 0.1377942  -25.98327
+fit4 = arima(data, order = c(1, 0, 1),
+             seasonal = list(order = c(0, 1, 1), period = 12),
+             include.mean = F) #60.01738  66.87166 0.1343796  -26.00869
+#fit2 > fit3 > fit4 > fit1
+out_error_plot(data, 37, a_order = c(0, 1, 1), s_order = c(1, 0, 0), period = 12) #0.4071355
+out_error_plot(data, 37, a_order = c(0, 1, 1), s_order = c(0, 1, 1), period = 12) #0.6578255
+out_error_plot(data, 37, a_order = c(1, 1, 1), s_order = c(0, 1, 1), period = 12) #0.6757334
+#fit1 > fit2 > fit3 > fit4
+test_coef(fit1)  #sar1 F
+test_coef(fit2) #sma F
+test_coef(fit3) #ar1, sma1 F
+test_coef(fit4) #sma F
+#fit4 > fit1 = fit2 > fit3
+```
+```{r message=FALSE, warning=FALSE}
+test(residuals(fit1)) #0 rejected, everythings ok
+test(residuals(fit2)) #2 rejected, residual&qq seems unstable, acf lag 5
+test(residuals(fit3)) #1 rejected, residual & qq nono, acf lag 5
+test(residuals(fit4)) #0 rejected, resi qq nono
+```
+
+
+final model in original dataset is fit1
+```{r message=FALSE, warning=FALSE}
+plot(forecast::forecast(fit1))
+```
+
+by the same procedure as above, final model is SARIMA(1, 0, 2)(0, 0, 1)[12] with data(-2)
+
+```{r message=FALSE, warning=FALSE}
+fit6 = arima(dat2, order = c(1, 0, 2),
+             seasonal = list(order = c(0, 0, 1), period = 12),
+             include.mean = F) #-404.7524 -394.9009 2.104561e-05 207.3762
+out_error_plot(dat2, 37, a_order = c(1, 0, 2), s_order = c(0, 0, 1), period = 12) # 3.594744e-05
+test_coef(fit6) #ma1 ma2
+test(residuals(fit6)) #0, "
+plot(forecast::forecast(fit6))
+```
+
+to compare with prophet,
+
+```{r message=FALSE, warning=FALSE}
+n = length(dat2)
+xhat = numeric(n -37)
+for (i in 0:(n - 38)){
+  fit = arima(dat[1:(37 + i)], order = c(1, 1, 1), 
+              seasonal = list(order = c(0, 1, 0), period = 12),
+              include.mean = F)
+  fore = forecast::forecast(fit, h = 1)$mean
+  if (fore > 0){
+    xhat[i+1] = sqrt(fore)^(-1)
+  } else{
+    xhat[i + 1] = 0
+  }
+  
+}
+mean((data[38:53] - xhat)^2) #original scale out of sample MSE
+```
+
+to compare with prophet, mape in original scale is as below :
+```{r message=FALSE, warning=FALSE}
+#mape
+n = length(dat2)
+fit = arima(dat[1:37], order = c(1, 1, 1), seasonal = list(order = c(0, 1, 0), period =12), include.mean = F)
+xhat = forecast::forecast(fit, h = 16)$mean
+xhat = sqrt(ifelse(xhat > 0, xhat, 0))^(-1)
+mape = (1 - mean(abs((xhat - data[38:53])/data[38:53])))*100
+mape
+```
+
+## Cluster 1 : Median
+
+```{r message=FALSE, warning=FALSE}
+data = fread("arima_median.csv")[2, -1] %>% apply(2, sum)
+data = ts(data, frequency = 12, start = c(2017, 01))
+plot.ts(data)
+plot.ts(diff(data))
+plot.ts(diff(diff(data)))
+library(MASS)
+fit = boxcox(data ~ 1)
+lambda = fit$x[which.max(fit$y)]; lambda
+dat = log(data)
+```
+
+```{r message=FALSE, warning=FALSE}
+fit4 = arima(data, order = c(0, 1, 1), seasonal = list(order = c(1, 0, 1), period = 12),
+             include.mean = F)
+out_error_plot(data, 37, a_order = c(0, 1, 1), s_order = c(1, 0, 1), period = 12) #8.868089e-11
+test_coef(fit4)#2/3
+test(residuals(fit4))#okkk
+plot(forecast::forecast(fit4))
+```
+
+to compare with prophet, mape in original scale is as below :
+```{r message=FALSE, warning=FALSE}
+mspe_plot(data, 37, a_order = c(0, 1, 1), s_order = c(1, 0, 1), period = 12)
+```
+# Cluster 2
+
+## Cluster 2 : Sum
+
+```{r message=FALSE, warning=FALSE}
+data = fread("v23gb2_cluster2.csv")[, 4:56] %>% apply(2, sum)
+data = ts(data, frequency = 12, start = c(2017, 01))
+plot.ts(data) #seasonality? poly trend?
+acf(data, lag = 50) #~10
+pacf(data, lag = 50) #1
+plot.ts(diff(data))
+plot.ts(diff(diff(data)))
+
+auto.arima(data) #ARIMA(0,1,0) 0.7899: -67.65 AIC=137.31 
+
+fit3 = arima(data, order = c(1, 1, 1),
+             seasonal = list(order = c(0, 1, 1), period = 12), 
+             include.mean = F) #21.9999 128.7555  0.6464910  -56.99997
+out_error_plot(data, 37,a_order = c(1, 1, 1), s_order = c(0, 1, 1), period = 12) #3.269203
+
+test_coef(fit3)
+test(residuals(fit3)) #1 rejected
+plot(forecast::forecast(fit3))
+```
+
+to compare w prophet, mape in original scale is as below:
+```{r message=FALSE, warning=FALSE}
+mspe_plot(data, 37, a_order = c(1, 1, 1), s_order = c(0, 1, 1), period = 12)
+```
+
+
+## Cluster 2 : Median data
+
+```{r message=FALSE, warning=FALSE}
+data = fread("arima_median.csv")[3,-1] %>% apply(2, sum)
+data = ts(data, frequency  = 12, start = c(2017, 01))
+plot.ts(data)
+acf(data, lag = 50) #till lag 8
+pacf(data, lag = 50) #lag 1
+plot.ts(diff(data))
+plot.ts(diff(diff(data))) #vst needed maybe
+library(MASS)
+fit = boxcox(data ~ 1)
+lambda = fit$x[which.max(fit$y)]; lambda #lambda near 0
+dat = log(data)
+```
+
+final model
+
+```{r message=FALSE, warning=FALSE}
+fit1 = arima(dat, order = c(1, 1, 1), season = list(order = c(1, 0, 0), period = 12),
+             include.mean = F)
+out_error_plot(dat, 37, a_order = c(1, 1, 1), s_order = c(1, 0, 0), period = 12) #0.01792916
+test_coef(fit1)
+test(residuals(fit1)) #ok
+plot(forecast::forecast(fit1))
+```
+
+
+```{r message=FALSE, warning=FALSE}
+n = length(dat)
+xhat = numeric(n -37)
+for (i in 0:(n - 38)){
+  fit = arima(dat[1:(37 + i)], order = c(1, 1, 1), 
+              seasonal = list(order = c(1, 0, 0), period = 12),
+              include.mean = F)
+  xhat[i+1] = exp(forecast::forecast(fit, h = 1)$mean)
+}
+mean((data[38:53] - xhat)^2) #original scale out of sample MSE
+```
+
+to compare with prophet, mape in original scale is as below :
+```{r message=FALSE, warning=FALSE}
+#mape
+n = length(dat)
+fit = arima(dat[1:37], order = c(1, 1, 1), seasonal = list(order = c(1, 0, 0), period =12), include.mean = F)
+xhat = exp(forecast::forecast(fit, h = 16)$mean)
+mape = (1 - mean(abs((xhat - data[38:53])/data[38:53])))*100
+mape
+```
